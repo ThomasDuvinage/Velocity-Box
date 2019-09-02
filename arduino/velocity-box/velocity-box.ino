@@ -12,8 +12,13 @@
 #include <SPI.h>
 #include <SD.h>
 
-int period = 200;
+float period = 100.00;
 unsigned long time_now = 0;
+const float precision = 1.5;
+float offset_X = 0,offset_Y = 0,offset_Z = 0, velocity[3] = {0}, acceleration[3] = {0};
+int i;
+
+float previous_velocity[3] = {0};
 
 File myFile;
 
@@ -31,12 +36,17 @@ void setup()
     delay(500);
   }
 
-  // If you want, you can set accelerometer offsets
-  mpu.setAccelOffsetX(7);
-  mpu.setAccelOffsetY(7);
-  mpu.setAccelOffsetZ(7);
+  Vector normAccel = mpu.readNormalizeAccel();
   
-  //checkSettings();
+  for(i = 0; i < 100;i++){
+    offset_X += normAccel.XAxis;
+    offset_Y += normAccel.YAxis;
+    offset_Z += normAccel.ZAxis;
+  }
+
+  offset_X /= i;
+  offset_Y /= i;
+  offset_Z /= i;
 
   Serial.print("Initializing SD card...");
 
@@ -45,12 +55,11 @@ void setup()
     while (1);
   }
   
-
   // open the file. note that only one file can be open at a time,
   // so you have to close this one before opening another.
   SD.remove("data.csv");
   myFile = SD.open("data.csv", FILE_WRITE);
-  myFile.println("Temps;Acceleration_X;Acceleration_Y;Acceleration_Z;Vitesse_X;Vitesse_Y;Vitesse_Z");
+  myFile.println("Temps (ms);Acceleration_X (m/s^2);Acceleration_Y (m/s^2);Acceleration_Z(m/s^2);Vitesse_X(m/s);Vitesse_Y(m/s);Vitesse_Z(m/s)");
   myFile.close(); 
   if(SD.exists("data.csv")){
     Serial.println("initialization done.");
@@ -61,44 +70,6 @@ void setup()
   // if the file opened okay, write to it:
 }
 
-void checkSettings()
-{
-  Serial.println();
-  
-  Serial.print(" * Sleep Mode:            ");
-  Serial.println(mpu.getSleepEnabled() ? "Enabled" : "Disabled");
-  
-  Serial.print(" * Clock Source:          ");
-  switch(mpu.getClockSource())
-  {
-    case MPU6050_CLOCK_KEEP_RESET:     Serial.println("Stops the clock and keeps the timing generator in reset"); break;
-    case MPU6050_CLOCK_EXTERNAL_19MHZ: Serial.println("PLL with external 19.2MHz reference"); break;
-    case MPU6050_CLOCK_EXTERNAL_32KHZ: Serial.println("PLL with external 32.768kHz reference"); break;
-    case MPU6050_CLOCK_PLL_ZGYRO:      Serial.println("PLL with Z axis gyroscope reference"); break;
-    case MPU6050_CLOCK_PLL_YGYRO:      Serial.println("PLL with Y axis gyroscope reference"); break;
-    case MPU6050_CLOCK_PLL_XGYRO:      Serial.println("PLL with X axis gyroscope reference"); break;
-    case MPU6050_CLOCK_INTERNAL_8MHZ:  Serial.println("Internal 8MHz oscillator"); break;
-  }
-  
-  Serial.print(" * Accelerometer:         ");
-  switch(mpu.getRange())
-  {
-    case MPU6050_RANGE_16G:            Serial.println("+/- 16 g"); break;
-    case MPU6050_RANGE_8G:             Serial.println("+/- 8 g"); break;
-    case MPU6050_RANGE_4G:             Serial.println("+/- 4 g"); break;
-    case MPU6050_RANGE_2G:             Serial.println("+/- 2 g"); break;
-  }  
-
-  Serial.print(" * Accelerometer offsets: ");
-  Serial.print(mpu.getAccelOffsetX());
-  Serial.print(" / ");
-  Serial.print(mpu.getAccelOffsetY());
-  Serial.print(" / ");
-  Serial.println(mpu.getAccelOffsetZ());
-  
-  Serial.println();
-}
-
 void loop()
 {
   Vector normAccel = mpu.readNormalizeAccel();
@@ -107,32 +78,71 @@ void loop()
     time_now = millis(); 
     myFile = SD.open("data.csv", FILE_WRITE);
     if (myFile) {
-      Serial.print("Writing to data.csv...");
+
+      acceleration[0] = (normAccel.XAxis - offset_X)*9.81;
+      acceleration[1] = (normAccel.YAxis - offset_Y)*9.81;
+      acceleration[2] = (normAccel.ZAxis - offset_Z)*9.81;
+
+      
+      if(acceleration[0] > precision || acceleration[0] < -precision ){
+        //save velocity and plot it 
+        velocity[0] = ((normAccel.XAxis - offset_X)*9.81) * (period / 1000.00);
+        previous_velocity[0] = velocity[0]; 
+      }else{
+        velocity[0] = previous_velocity[0];//we add the previous velocity to the actual one 
+      }
+      
+      if( acceleration[1] > precision  || acceleration[1] < -precision ){
+        //save velocity and plot it 
+        velocity[1] = ((normAccel.YAxis - offset_Y)*9.81) * (period / 1000.00);
+        previous_velocity[1] = velocity[1]; 
+      }else{
+        velocity[1] = previous_velocity[1];//we add the previous velocity to the actual one 
+      }
+      
+      if( acceleration[2] > precision  || acceleration[2] < -precision){
+        //save velocity and plot it 
+        velocity[2] = ((normAccel.ZAxis - offset_Z)*9.81) * (period / 1000.00);
+        previous_velocity[2] = velocity[2];     
+      }else{
+        velocity[2] = previous_velocity[2];//we add the previous velocity to the actual one 
+      }
+
+      
+      Serial.println("Writing to data.csv...");
       Serial.print(" Xnorm = ");
-      Serial.print(normAccel.XAxis);
+      Serial.print(acceleration[0]);
       Serial.print(" Ynorm = ");
-      Serial.print(normAccel.YAxis);
+      Serial.print(acceleration[1]);
       Serial.print(" Znorm = ");
-      Serial.println(normAccel.ZAxis);
+      Serial.print(acceleration[2]);
+
+      Serial.print(" X_velocity = ");
+      Serial.print(velocity[0]);
+      Serial.print(" Y_velocity = ");
+      Serial.print(velocity[1]);
+      Serial.print(" Z_velocity = ");
+      Serial.println(velocity[2]);
+
 
       //add time
       myFile.print(time_now);
       myFile.print(";");
       //add accelaration 
-      myFile.print((float)normAccel.XAxis);
+      myFile.print((float)(normAccel.XAxis - offset_X)*9.81);
       myFile.print(";");
-      myFile.print((float)normAccel.YAxis);
+      myFile.print((float)(normAccel.YAxis - offset_Y)*9.81);
       myFile.print(";");
-      myFile.print((float)normAccel.ZAxis);
+      myFile.print((float)(normAccel.ZAxis - offset_Z)*9.81);
       myFile.print(";");
       
 
       //add velocity
-      myFile.print((float)(normAccel.XAxis * (period / 1000)));
+      myFile.print((float)((normAccel.XAxis - offset_X)*9.81) * (period / 1000.00));
       myFile.print(";");
-      myFile.print((float)(normAccel.YAxis * (period / 1000)));
+      myFile.print((float)((normAccel.YAxis - offset_Y)*9.81) * (period / 1000.00));
       myFile.print(";");
-      myFile.println((float)(normAccel.ZAxis * (period / 1000)));
+      myFile.println((float)((normAccel.ZAxis - offset_Z)*9.81) * (period / 1000.00));
       
       myFile.close();// close the file:
     }
